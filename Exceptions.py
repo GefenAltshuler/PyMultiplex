@@ -3,3 +3,6 @@ class MaxChannelsReached(Exception):
 
 class ProtocolInitializationFailed(Exception):
     pass
+
+class RemoteSocketClosed(Exception):
+    pass

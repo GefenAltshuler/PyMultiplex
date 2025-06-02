@@ -1,34 +1,24 @@
+import threading
 import logging
+import random
 import socket
 import struct
-import sys
 import threading
-import random
-from typing import Tuple, List, Dict
-from consts import MAX_CHANNEL_CLIENTS, MAX_CHANNELS, HEADERS_SIZE, MIN_CHANNELS, DEFAULT_BIND_ADDRESS, \
+from typing import Dict, Union
+
+from ChannelSocket import ChannelSocket
+from Exceptions import MaxChannelsReached, ProtocolInitializationFailed, RemoteSocketClosed
+from Message import Message
+from Message import MessageCode
+from consts import MAX_CHANNELS, MIN_CHANNELS, DEFAULT_BIND_ADDRESS, \
     MAX_PIPE_CLIENTS, BUFFER_SIZE
 
-from ChannelSocket import ChannelSocket
-from Exceptions import MaxChannelsReached, ProtocolInitializationFailed
-from Message import MessageCode
 
-import logging
-import socket
-import struct
-from threading import Thread
-from typing import Dict
-
-from ChannelSocket import ChannelSocket
-from Message import Message
-from consts import HEADERS_SIZE
-
-
-class ClientThread(Thread):
-    def __init__(self, sock: ChannelSocket):
-        self._sock: ChannelSocket = sock
+class ClientThread:
+    def __init__(self, remote_sock: socket.socket, ident):
+        self._remote_sock: socket.socket = remote_sock
         self._channels: Dict[int, ChannelSocket] = {}
-        self.
-        super().__init__()
+        self.ident = ident
 
     def _info(self, log: str):
         logging.info(f"{self.__class__.__name__} [{self.ident}]: {log}")
@@ -37,102 +27,90 @@ class ClientThread(Thread):
         logging.debug(f"{self.__class__.__name__} [{self.ident}]: {log}")
 
     def _recv_message(self):
-        headers = self._sock.recv(HEADERS_SIZE)
+        headers = self._remote_sock.recv(BUFFER_SIZE)
+        if not headers: raise RemoteSocketClosed
         channel, code, length = struct.unpack('!BBI', headers)
-        data = self._sock.recv(length)
+        data = self._remote_sock.recv(BUFFER_SIZE)
         self._debug(f'Data received: {channel}|{code}|{length}|{data}')
 
         return Message(channel, code, data)
 
     def _send_message(self, message: Message):
-        return self._sock.sendall(message.to_bytes())
+        return self._remote_sock.sendall(message.to_bytes())
 
-    def _get_channel_number(self):
+    def _get_channel_id(self):
         channel = random.randint(MIN_CHANNELS, MAX_CHANNELS)
-        if len(self._channels) >= (MAX_CHANNELS-MIN_CHANNELS):
+        if len(self._channels) >= (MAX_CHANNELS - MIN_CHANNELS):
             raise MaxChannelsReached
 
         if channel in self._channels.keys():
-            return self._get_channel_number()
+            return self._get_channel_id()
 
         return channel
 
-    def _pipe_closed_channel(self, channel: int):
-        close_message = Message(channel, MessageCode.close)
-        self._send_message(close_message)
-        self._channels.pop(channel)
+    def _close_channel(self, channel_id: int):
+        channel = self._channels.pop(channel_id)
+        channel.is_open = False
 
-    def _remote_closed_channel(self, channel: int):
-        self._channels.pop(channel)
-
-    def _pipe_to_channel(self, channel: int, pipe_socket: socket.socket):
-        while True: # todo: add support for closing pipe from other thread
-
-            # pipe socket closed
-            pipe_data = pipe_socket.recv(BUFFER_SIZE)
-            if not pipe_data:
-                self._pipe_closed_channel(channel)
-                pipe_socket.close()
-                sys.exit()
-
-            # normal data transfer
-            data_message = Message(channel, MessageCode.data, pipe_data)
-            self._send_message(data_message)
-
-    def _channel_to_pipe(self, channel: int, pipe_socket: socket.socket):
-        while True:  # todo: add support for closing pipe from other thread
-            message = self._recv_message()
-            if message.code == MessageCode.data:
-                pipe_socket.sendall(message.data)
-            elif message.code == MessageCode.close:
-                pipe_socket.close()
-                self._remote_closed_channel(channel)
-                sys.exit()
-
-
-            # # pipe socket closed
-            # pipe_data = pipe_socket.recv(BUFFER_SIZE)
-            # if not pipe_data:
-            #     self._close_channel(channel)
-            #     pipe_socket.close()
-            #     sys.exit()
-            #
-            # # normal data transfer
-            # data_message = Message(channel, MessageCode.data, pipe_data)
-            # self._send_message(data_message)
+    def _check_for_closed_channels(self):
+        for channel in self._channels.values():
+            if not channel.is_open:
+                closing_message = channel.get_closing_message()
+                self._send_message(closing_message)
+                self._close_channel(closing_message.channel)
 
     def start(self):
-        channels: Dict[int, ChannelSocket] = {}
 
         message = self._recv_message()
         if message.code != MessageCode.bind:
             raise ProtocolInitializationFailed
 
+        # get port to listen
         pipe_port = struct.unpack('!H', message.data)[0]
         pipe_socket = socket.socket()
         bind_address = (DEFAULT_BIND_ADDRESS, pipe_port)
 
+        # start listen for incoming connections
         pipe_socket.bind(bind_address)
         pipe_socket.listen(MAX_PIPE_CLIENTS)
-
         self._info(f"Listening on {bind_address}")
+        pipe_client, pipe_client_address = pipe_socket.accept()
+        self._info(f"Connected by {pipe_client_address}")
 
+        # assign new channel
+        channel_id = self._get_channel_id()
+        self._channels[channel_id] = ChannelSocket(channel_id)
+
+        # make the client init connection to target server
+        open_channel_message = Message(channel_id, MessageCode.open, message.data)
+        self._send_message(open_channel_message)
+
+        # transfer data in both directions
+        threading.Thread(target=ClientThread._pipe, args=(self._remote_sock, pipe_socket)).start()
+        threading.Thread(target=ClientThread._pipe, args=(pipe_socket, self._remote_sock)).start()
+
+        # listen for messages from all channels and feed the appropriate ChannelSocket
         while True:
-            pipe_client, pipe_client_address = pipe_socket.accept()
-            self._info(f"Connected by {pipe_client_address}")
+            try:
+                message = self._recv_message()
+                if message.code == MessageCode.close:
+                    self._channels[message.channel].put(b'')
+                    self._close_channel(message.channel)
+                    continue
+                self._channels[message.channel].put(message.data)
+                self._check_for_closed_channels()
+            except RemoteSocketClosed:
+                self._info(f"Remote socket closed, closing all channels")
+                del self._channels
+                break
 
-            channel = self._get_channel_number()
-            open_channel_message = Message(channel, MessageCode.open, message.data)
-            self._send_message(open_channel_message) # now client init connection to target server
-
-
-        # while True:
-        #     # accept new client
-        #     client_socket, client_address = server_socket.accept()
-        #     logging.info(f"Connected by {client_address}")
-        #
-        # channel = get_channel_number(channels)
-        # channel_socket = ChannelSocket(client_socket)
-        # channels[channel] = channel_socket
-
-        super().start()
+    @staticmethod
+    def _pipe(s1: Union[ChannelSocket, socket.socket], s2: Union[ChannelSocket, socket.socket]):
+        while True:  # todo: add support for closing pipe from other thread
+            data = s1.recv(BUFFER_SIZE)
+            if not data:
+                s1.close()
+                s2.close()
+                break
+            else:
+                s2.send(data)

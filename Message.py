@@ -15,3 +15,6 @@ class Message:
 
     def to_bytes(self) -> bytes:  # todo: prevent serialization -> deserialization -> serialization between Server and Thread
         return struct.pack('!BBI', self.channel, self.code, len(self.data)) + self.data
+
+
+# TODO: add specific Message class for each enum value (or create factory)
