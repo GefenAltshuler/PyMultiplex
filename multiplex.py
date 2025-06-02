@@ -1,99 +1,89 @@
 import struct
-from queue import Queue
-from typing import Dict
+import threading
+import select
+import sys
+
+
 from utils import *
 
+channels = {}
 
-channels: Dict[int, tuple[Queue, socket.socket]] = {}
-
-
-def read_channels_socket(communication_socket):
-    channels_socket = [s[SOCKET] for s in channels.values()]
-    socket_to_channel = {items[SOCKET]: channel for channel, items in channels.items()}
-    readable, _, _ = select.select(channels_socket, [], [], 1)
-
-    for ch_socket in readable:
-        data = ch_socket.recv(BUFFER_SIZE)
-        channel = socket_to_channel[ch_socket]
-        if not data:
-            logging.info(f'channel {channel} socket closed')
-            close_channel(channel)
-        else:
-            logging.debug(f'channel {channel} socket received: {data}')
-            message = build_message(channel, Message.data, data)
-            communication_socket.sendall(message)
-
-
-def read_channels_queues():
-    channels_queues = [s[QUEUE] for s in channels.values()]
-    queues_to_channel = {items[QUEUE]: channel for channel, items in channels.items()}
-    readable, _, _ = select.select(channels_queues, [], [], 1)
-
-    for ch_queue in readable:
-        data = ch_queue.get()
-        channel = queues_to_channel[ch_queue]
-        logging.debug(f'channel {channel} queue received: {data}')
-        channels[channel][1].sendall(data)
+def handle_channel(channel, queue, sock, main_sock):
+    while True:
+        readable, _, _ = select.select([queue[0], sock], [], [])
+        for r in readable:
+            if r is queue[0]:
+                data = r.get()
+                logging.debug(f'channel {channel} queue received: {data}')
+                sock.sendall(data)
+            elif r is sock:
+                data = r.recv(BUFFER_SIZE)
+                if not data:
+                    logging.info(f'channel {channel} socket closed')
+                    close_channel(channel, main_sock)
+                    sys.exit()
+                logging.debug(f'channel {channel} socket received: {data}')
+                message = build_message(channel, Message.data, data)
+                main_sock.sendall(message)
 
 
-def safe_channel_io(channel: int, io_type, data):
-    if channel in channels.keys():
-        channels[channel][io_type].put(data)
-    else:
-        logging.error(f'Channel {channel} not found')
-
-
-def close_channel(channel: int):
+def close_channel(channel: int, main_sock):
+    logging.info(f'Channel {channel} closed')
     channels[channel][1].close()
     del channels[channel]
-    logging.info(f'Channel {channel} closed')
+    close_message = build_message(channel, Message.close)
+    main_sock.sendall(close_message)
 
 
-def send_message(channel, message):
-    channels[channel][0].put(message)
-
-
-def build_message(channel, code, data):
+def build_message(channel, code, data=''):
     message = struct.pack('!BBI', channel, code, len(data))
 
-    return message + data
+    return message
 
 
-def handle_message(channel, code, data):
+def handle_message(channel, code, data, main_sock):
     """
     Handle a channel message (open, data, close)
     """
     # init new channel queue and connection
     if code == Message.open:
-        channels[channel] = (Queue(), new_target_connection())
+        queue = socket.socketpair()
+        sock = new_target_connection()
+        channels[channel] = (queue, sock)
+        t = threading.Thread(target=handle_channel, args=(channel, queue, sock, main_sock))
+        t.start()
 
     # close requested channel
     elif code == Message.close:
-        close_channel(channel)
+        close_channel(channel, main_sock)  # todo: probably thread still alive, need to write error to select
 
     # receive data from channel
     elif code == Message.data:
-        safe_channel_io(channel, QUEUE, data)
+        channels[channel][0][1].send(data)
 
     # unknown code found
     else:
         logging.error(f'Unknown code {code}')
 
-def read_messages(sock: socket.socket):
+def get_greeting_channel(main_sock: socket.socket):
+    data = main_sock.recv(1)
+    return struct.unpack('!B', data)[0]
+
+def send_greeting_channel(client_sock: socket.socket, channel: int):
+    client_sock.sendall(struct.pack('!B', channel))
+
+
+def read_messages(main_sock: socket.socket):
     """
     Read channels data according to the messages protocol
     """
-    while True:
-        channel, code, length = struct.unpack('!BBI', sock.recv(6))[0]
-        data = sock.recv(length)
-        logging.debug(f'Data received: {channel}|{code}|{length}|{data}')
-        handle_message(channel, code, data)
+    headers = main_sock.recv(6)
+    channel, code, length = struct.unpack('!BBI', headers)
+    data = main_sock.recv(length)
+    logging.debug(f'Data received: {channel}|{code}|{length}|{data}')
+    handle_message(channel, code, data, main_sock)
+    if code == Message.data:
+        return data
+    else:
+        return None
 
-
-def write_channel_data(channel: int, data: bytes):
-    """
-    Write channel data according to the messages protocol
-    """
-    message = struct.pack('!BBI', channel, Message.data, len(data))
-    logging.info(f'Sending message: {channel}|{Message.data}|{len(data)}|{data}')
-    safe_channel_io(channel, SOCKET, message + data)

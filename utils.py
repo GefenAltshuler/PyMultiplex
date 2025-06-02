@@ -29,15 +29,15 @@ def get_channel_number(channels):
         raise MaxChannelsReached
 
     if channel in channels.keys():
-        return get_channel_number()
+        return get_channel_number(channels)
 
     return channel
 
-def new_target_connection(target_address):
+def new_target_connection():
     """
     Create a new target connection
     """
     sock = socket.socket()
-    sock.connect(target_address)
+    sock.connect(('209.38.142.101', 22))
 
     return sock
