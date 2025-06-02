@@ -1,4 +1,4 @@
-from MultiplexServer import MultiplexServer
+from Multiplex.MultiplexServer import MultiplexServer
 
 def main():
     server = MultiplexServer(('0.0.0.0', 8080))

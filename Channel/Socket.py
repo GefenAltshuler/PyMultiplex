@@ -1,6 +1,7 @@
 from queue import Queue
 from Message import Message, MessageCode
 
+
 class ChannelSocket:
     def __init__(self, channel: int):
         super().__init__()

@@ -1,26 +1,27 @@
-import threading
-import logging
 import random
 import socket
 import struct
 import threading
 from typing import Dict, Union
 
-from ChannelSocket import ChannelSocket
-from Exceptions import MaxChannelsReached, ProtocolInitializationFailed, RemoteSocketClosed, UnknownProtocolMessage
-from Message import Message
-from Message import MessageCode
-from consts import MAX_CHANNELS, MIN_CHANNELS, DEFAULT_BIND_ADDRESS, \
-    MAX_CLIENTS, BUFFER_SIZE, HEADERS_SIZE
-from Logger import Logger
+from Channel.Socket import ChannelSocket
+from Channel.Exceptions import MaxChannelsReached, RemoteSocketClosed, UnknownProtocolMessage
+from Channel.Message import Message
+from Channel.Message import MessageCode
+from utils.consts import MAX_CHANNELS, MIN_CHANNELS, BUFFER_SIZE, HEADERS_SIZE
+from utils.Logger import Logger
+from abc import abstractmethod, ABC
 
-class MultiplexThread:
+class MultiplexThread(ABC):
     def __init__(self, remote_sock: socket.socket, pipe_socket: socket.socket):
         self._remote_sock: socket.socket = remote_sock
-        self._pipe_sock: socket.socket = pipe_socket
         self._channels: Dict[int, ChannelSocket] = {}
         self.ident = id(self)
         self._logger = Logger(self)
+
+    @abstractmethod
+    def _get_pipe_socket(self) -> socket.socket:
+        pass
 
     def _recv_message(self):
         headers = self._remote_sock.recv(HEADERS_SIZE)
@@ -47,17 +48,6 @@ class MultiplexThread:
 
         return channel
 
-    def init_new_channel(self):
-        # local create new channel
-        channel_id = self.get_new_channel_id()
-        channel_socket = ChannelSocket(channel_id)
-        self._channels[channel_id] = channel_socket
-
-        # remote create new channel
-        open_channel_message = Message(channel_id, MessageCode.open)
-        self._send_message(open_channel_message)
-        self._open_pipe(channel_socket)
-
 
     def _open_new_channel(self, channel_id: int):
         # create new channel socket
@@ -67,8 +57,8 @@ class MultiplexThread:
 
     def _open_pipe(self, channel_socket: ChannelSocket):
         # transfer data in both directions
-        threading.Thread(target=MultiplexThread._pipe, args=(self._pipe_sock, channel_socket)).start()
-        threading.Thread(target=MultiplexThread._pipe, args=(channel_socket, self._pipe_sock)).start()
+        threading.Thread(target=MultiplexThread._pipe, args=(self._get_pipe_socket(), channel_socket)).start()
+        threading.Thread(target=MultiplexThread._pipe, args=(channel_socket, self._get_pipe_socket())).start()
 
     def _close_channel(self, channel_id: int):
         channel = self._channels.pop(channel_id)
@@ -82,9 +72,9 @@ class MultiplexThread:
                 self._close_channel(closing_message.channel)
 
     def start(self):
-
-
-        # listen for messages from all channels and feed the appropriate ChannelSocket
+        """
+         listen for messages from all channels and feed the appropriate ChannelSocket
+        """
         while True:
             try:
                 message = self._recv_message()

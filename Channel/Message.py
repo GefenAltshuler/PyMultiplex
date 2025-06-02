@@ -2,10 +2,10 @@ import struct
 from enum import IntEnum
 import socket
 
-from Exceptions import RemoteSocketClosed, UnknownProtocolMessage
-from consts import HEADERS_SIZE
+from Channel.Exceptions import RemoteSocketClosed, UnknownProtocolMessage
+from utils.consts import HEADERS_SIZE
 
-from Logger import Logger
+from utils.Logger import Logger
 
 
 class MessageCode(IntEnum):

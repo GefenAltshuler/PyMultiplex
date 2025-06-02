@@ -1,14 +1,13 @@
-import logging
 import socket
 import struct
 import threading
 from typing import Tuple
 
-from Exceptions import ProtocolInitializationFailed
-from Message import Message, MessageCode
-from MultiplexThread import MultiplexThread
-from Logger import Logger
-from consts import MAX_CLIENTS, DEFAULT_BIND_ADDRESS
+from Channel.Exceptions import ProtocolInitializationFailed
+from Channel.Message import Message, MessageCode
+from Threads.MultiplexServerThread import MultiplexServerThread
+from utils.Logger import Logger
+from utils.consts import MAX_CLIENTS, DEFAULT_BIND_ADDRESS
 
 
 class MultiplexServer:
@@ -42,8 +41,8 @@ class MultiplexServer:
             self._logger.info(f"Connected by {pipe_client_address}")
 
             # create new channel
-            multiplex_thread = MultiplexThread(remote_socket, pipe_socket)
-            channel_socket = multiplex_thread.init_new_channel()
+            multiplex_thread = MultiplexServerThread(pipe_socket, remote_socket)
+            multiplex_thread.init_new_channel()
 
             threading.Thread(target=multiplex_thread.start).start()
 
