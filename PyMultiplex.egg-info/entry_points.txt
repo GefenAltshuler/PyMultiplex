@@ -1,0 +1,2 @@
+[console_scripts]
+multiplex = PyMultiplex.__main__:main

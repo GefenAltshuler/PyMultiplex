@@ -1,4 +1,4 @@
-from PyMultiplex.Multiplex.MultiplexClient import MultiplexClient
+from PyMultiplex import MultiplexClient
 
 def main():
     server = MultiplexClient(('127.0.0.1', 8080), ('wtfismyip.com', 80), 1726)
