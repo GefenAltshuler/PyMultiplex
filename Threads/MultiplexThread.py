@@ -108,8 +108,8 @@ class MultiplexThread(ABC):
             try:
                 data = s1.recv(BUFFER_SIZE)
                 if not data: raise ConnectionError
-            except ConnectionError:
-                Logger.inner_debug("socket closed unexpectedly", MultiplexThread)
+            except ConnectionError as e:
+                Logger.inner_debug(f"socket closed {str(e)}", MultiplexThread)
                 s1.close()
                 s2.close()
                 break
