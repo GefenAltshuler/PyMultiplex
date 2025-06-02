@@ -1,6 +1,7 @@
 import socket
 from queue import Queue
 from Channel.Message import Message, MessageCode
+from utils.Logger import Logger
 
 
 class ChannelSocket:
@@ -25,10 +26,15 @@ class ChannelSocket:
         self._remote_sock.sendall(data_message.to_bytes())
 
     def close(self):
-        self.is_open = False
+        if self.is_open:
+            self.is_open = False
+            self.remote_close_channel()
+        else:
+            Logger.inner_debug(f'socket of channel {self._channel} already closed, passing', ChannelSocket)
 
-    def get_closing_message(self):
+    def remote_close_channel(self):
+        Logger.inner_debug(f'Closing channel {self._channel}', ChannelSocket)
         close_channel_message = Message(self._channel, MessageCode.close)
-        return self.put(close_channel_message.to_bytes())  # todo: understand how this message will come to the remote endpoint ## todo: lmao hahahah lol
+        self._remote_sock.sendall(close_channel_message.to_bytes())
 
 

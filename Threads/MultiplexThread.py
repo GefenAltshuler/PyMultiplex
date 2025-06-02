@@ -65,15 +65,9 @@ class MultiplexThread(ABC):
         threading.Thread(target=MultiplexThread._pipe, args=(channel_socket, pipe_socket)).start()
 
     def _close_channel(self, channel_id: int):
+        self._logger.debug(f'Closing channel {channel_id}')
         channel = self._channels.pop(channel_id)
         channel.is_open = False
-
-    def _check_for_closed_channels(self):
-        for channel in self._channels.values():
-            if not channel.is_open:
-                closing_message = channel.get_closing_message()
-                self._send_message(closing_message)
-                self._close_channel(closing_message.channel)
 
     def listen_for_messages(self):
         """
@@ -92,7 +86,7 @@ class MultiplexThread(ABC):
                     self._close_channel(message.channel)
                 elif message.code == MessageCode.data:
                     self._channels[message.channel].put(message.data)
-                self._check_for_closed_channels()
+
 
             except RemoteSocketClosed:
                 self._logger.error(f"Remote socket closed, closing all channels")
@@ -109,9 +103,13 @@ class MultiplexThread(ABC):
 
     @staticmethod
     def _pipe(s1: Union[ChannelSocket, socket.socket], s2: Union[ChannelSocket, socket.socket]):
+
         while True:  # todo: add support for closing pipe from other thread (maybe there is no need?)
-            data = s1.recv(BUFFER_SIZE)
-            if not data:
+            try:
+                data = s1.recv(BUFFER_SIZE)
+                if not data: raise ConnectionError
+            except ConnectionError:
+                Logger.inner_debug("socket closed unexpectedly", MultiplexThread)
                 s1.close()
                 s2.close()
                 break
