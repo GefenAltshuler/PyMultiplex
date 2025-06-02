@@ -3,10 +3,10 @@ from enum import IntEnum
 import socket
 import binascii
 
-from Channel.Exceptions import RemoteSocketClosed, UnknownProtocolMessage
-from utils.consts import HEADERS_SIZE
+from PyMultiplex.Channel.Exceptions import RemoteSocketClosed, UnknownProtocolMessage
+from PyMultiplex.utils.consts import HEADERS_SIZE
 
-from utils.Logger import Logger
+from PyMultiplex.utils.Logger import Logger
 
 class MessageCode(IntEnum):
     bind = 1

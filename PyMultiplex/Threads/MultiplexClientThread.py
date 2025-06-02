@@ -1,7 +1,7 @@
 import socket
 from typing import Tuple
 
-from Threads.MultiplexThread import MultiplexThread
+from PyMultiplex.Threads.MultiplexThread import MultiplexThread
 
 
 class MultiplexClientThread(MultiplexThread):

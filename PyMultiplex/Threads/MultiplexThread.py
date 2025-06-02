@@ -2,16 +2,16 @@ import random
 import socket
 import struct
 import threading
-from abc import abstractmethod, ABC
+from abc import ABC
 from typing import Dict, Union
 import binascii
 
-from Channel.Exceptions import MaxChannelsReached, RemoteSocketClosed, UnknownProtocolMessage
-from Channel.Message import Message
-from Channel.Message import MessageCode
-from Channel.Socket import ChannelSocket
-from utils.Logger import Logger
-from utils.consts import MAX_CHANNELS, MIN_CHANNELS, BUFFER_SIZE, HEADERS_SIZE
+from PyMultiplex.Channel.Exceptions import MaxChannelsReached, RemoteSocketClosed, UnknownProtocolMessage
+from PyMultiplex.Channel.Message import Message
+from PyMultiplex.Channel.Message import MessageCode
+from PyMultiplex.Channel.Socket import ChannelSocket
+from PyMultiplex.utils.Logger import Logger
+from PyMultiplex.utils.consts import MAX_CHANNELS, MIN_CHANNELS, BUFFER_SIZE, HEADERS_SIZE
 
 
 class MultiplexThread(ABC):

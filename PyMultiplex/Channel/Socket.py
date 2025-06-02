@@ -1,7 +1,7 @@
 import socket
 from queue import Queue
-from Channel.Message import Message, MessageCode
-from utils.Logger import Logger
+from PyMultiplex.Channel.Message import Message, MessageCode
+from PyMultiplex.utils.Logger import Logger
 
 
 class ChannelSocket:

@@ -1,9 +1,9 @@
 import socket
 
-from Channel.Message import Message, MessageCode
-from Channel.Socket import ChannelSocket
-from Threads.MultiplexThread import MultiplexThread
-from utils.consts import DEFAULT_BIND_ADDRESS, MAX_CLIENTS
+from PyMultiplex.Channel.Message import Message, MessageCode
+from PyMultiplex.Channel.Socket import ChannelSocket
+from PyMultiplex.Threads.MultiplexThread import MultiplexThread
+from PyMultiplex.utils.consts import DEFAULT_BIND_ADDRESS, MAX_CLIENTS
 
 
 class MultiplexServerThread(MultiplexThread):

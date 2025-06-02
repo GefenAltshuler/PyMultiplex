@@ -1,21 +1,19 @@
 import socket
 import struct
-import threading
 from typing import Tuple
 
-from utils.Logger import Logger
-from Channel.Message import Message, MessageCode
-from Threads.MultiplexClientThread import MultiplexClientThread
-from utils.consts import DEFAULT_CHANNEL
-
-FORWARD_LISTEN_PORT = 7190
+from PyMultiplex.utils.Logger import Logger
+from PyMultiplex.Channel.Message import Message, MessageCode
+from PyMultiplex.Threads.MultiplexClientThread import MultiplexClientThread
+from PyMultiplex.utils.consts import DEFAULT_CHANNEL
 
 
 class MultiplexClient:
-    def __init__(self, server_address: Tuple[str, int], target_address: Tuple[str, int]):
+    def __init__(self, server_address: Tuple[str, int], target_address: Tuple[str, int], remote_forward_port: int):
         self._multiplex_socket = socket.socket()
         self._server_address = server_address
         self._target_address = target_address
+        self._remote_forward_port = remote_forward_port
         self._logger = Logger(self)
         self.ident = id(self)
 
@@ -28,7 +26,7 @@ class MultiplexClient:
         self._multiplex_socket.connect(self._server_address)
 
         # make the remote server start listening
-        forward_listen_port = struct.pack('!H', FORWARD_LISTEN_PORT)
+        forward_listen_port = struct.pack('!H', self._remote_forward_port)
         bind_message = Message(DEFAULT_CHANNEL, MessageCode.bind, forward_listen_port).to_bytes()
         self._multiplex_socket.sendall(bind_message)
 
