@@ -2,26 +2,30 @@ import random
 import socket
 import struct
 import threading
+from abc import abstractmethod, ABC
 from typing import Dict, Union
+import binascii
 
-from Channel.Socket import ChannelSocket
 from Channel.Exceptions import MaxChannelsReached, RemoteSocketClosed, UnknownProtocolMessage
 from Channel.Message import Message
 from Channel.Message import MessageCode
-from utils.consts import MAX_CHANNELS, MIN_CHANNELS, BUFFER_SIZE, HEADERS_SIZE
+from Channel.Socket import ChannelSocket
 from utils.Logger import Logger
-from abc import abstractmethod, ABC
+from utils.consts import MAX_CHANNELS, MIN_CHANNELS, BUFFER_SIZE, HEADERS_SIZE
+
 
 class MultiplexThread(ABC):
-    def __init__(self, remote_sock: socket.socket, pipe_socket: socket.socket):
+    def __init__(self, remote_sock: socket.socket):
         self._remote_sock: socket.socket = remote_sock
         self._channels: Dict[int, ChannelSocket] = {}
         self.ident = id(self)
         self._logger = Logger(self)
 
-    @abstractmethod
     def _get_pipe_socket(self) -> socket.socket:
-        pass
+        raise NotImplementedError('unsupported')
+
+    def _forward_listen(self, pipe_port: int) -> None:
+        raise NotImplementedError('unsupported')
 
     def _recv_message(self):
         headers = self._remote_sock.recv(HEADERS_SIZE)
@@ -29,7 +33,7 @@ class MultiplexThread(ABC):
         try:
             channel, code, length = struct.unpack('!BBI', headers)
             data = self._remote_sock.recv(length)
-            self._logger.debug(f'Data received: {channel}|{code}|{length}|{data}')
+            self._logger.debug(f'Data received: {channel}|{code}|{length}|{binascii.hexlify(data)}')
         except struct.error:
             raise UnknownProtocolMessage(headers)
 
@@ -48,17 +52,17 @@ class MultiplexThread(ABC):
 
         return channel
 
-
     def _open_new_channel(self, channel_id: int):
         # create new channel socket
-        channel_socket = ChannelSocket(channel_id)
-        self._channels[channel_id] = ChannelSocket(channel_id)
-        self._open_pipe(channel_socket)
+        channel_socket = ChannelSocket(channel_id, self._remote_sock)
+        self._channels[channel_id] = channel_socket
+        MultiplexThread._open_pipe(channel_socket, self._get_pipe_socket())
 
-    def _open_pipe(self, channel_socket: ChannelSocket):
+    @staticmethod
+    def _open_pipe(channel_socket: ChannelSocket, pipe_socket: socket.socket):
         # transfer data in both directions
-        threading.Thread(target=MultiplexThread._pipe, args=(self._get_pipe_socket(), channel_socket)).start()
-        threading.Thread(target=MultiplexThread._pipe, args=(channel_socket, self._get_pipe_socket())).start()
+        threading.Thread(target=MultiplexThread._pipe, args=(pipe_socket, channel_socket)).start()
+        threading.Thread(target=MultiplexThread._pipe, args=(channel_socket, pipe_socket)).start()
 
     def _close_channel(self, channel_id: int):
         channel = self._channels.pop(channel_id)
@@ -71,13 +75,16 @@ class MultiplexThread(ABC):
                 self._send_message(closing_message)
                 self._close_channel(closing_message.channel)
 
-    def start(self):
+    def listen_for_messages(self):
         """
          listen for messages from all channels and feed the appropriate ChannelSocket
         """
         while True:
             try:
                 message = self._recv_message()
+                if message.code == MessageCode.bind:
+                    pipe_port = struct.unpack('!H', message.data)[0]
+                    threading.Thread(target=self._forward_listen, args=(pipe_port,)).start()
                 if message.code == MessageCode.open:
                     self._open_new_channel(message.channel)
                 elif message.code == MessageCode.close:
@@ -94,6 +101,12 @@ class MultiplexThread(ABC):
             except UnknownProtocolMessage as e:
                 self._logger.error(str(e))
 
+    def start(self):
+        """
+        handshake with the client, then assign new channel for both sides
+        """
+        self.listen_for_messages()
+
     @staticmethod
     def _pipe(s1: Union[ChannelSocket, socket.socket], s2: Union[ChannelSocket, socket.socket]):
         while True:  # todo: add support for closing pipe from other thread (maybe there is no need?)
@@ -103,4 +116,4 @@ class MultiplexThread(ABC):
                 s2.close()
                 break
             else:
-                s2.send(data)
+                s2.sendall(data)

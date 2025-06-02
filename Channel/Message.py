@@ -1,12 +1,12 @@
 import struct
 from enum import IntEnum
 import socket
+import binascii
 
 from Channel.Exceptions import RemoteSocketClosed, UnknownProtocolMessage
 from utils.consts import HEADERS_SIZE
 
 from utils.Logger import Logger
-
 
 class MessageCode(IntEnum):
     bind = 1
@@ -30,7 +30,7 @@ class Message:
         try:
             channel, code, length = struct.unpack('!BBI', headers)
             data = sock.recv(length)
-            Logger.inner_debug(f'Data received: {channel}|{code}|{length}|{data}', Message)
+            Logger.inner_debug(f'Data received: {channel}|{code}|{length}|{binascii.hexlify(data)}', Message)
         except struct.error:
             raise UnknownProtocolMessage(headers)
 
